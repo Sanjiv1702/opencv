@@ -4,14 +4,20 @@ import cv2
 from PIL import Image
 from io import BytesIO
 import base64
+import skfuzzy as fuzz
 
 st.set_page_config(page_title="Fuzzy Image Processor", layout="centered")
-st.title("🧠 Fuzzy Logic + OpenCV Image Processing")
+st.title("🧠 Fuzzy Logic-Based Image Processing using OpenCV + scikit-fuzzy")
+st.markdown("""
+This mini-project demonstrates soft computing principles using fuzzy logic and OpenCV. 
+It includes fuzzy edge detection, fuzzy thresholding, fuzzy contrast enhancement, fuzzy brightness boost, and more.
+""")
 
 # Sidebar Controls
 st.sidebar.header("⚙️ Tools & Parameters")
 tool = st.sidebar.selectbox("Select Tool", [
     "Grayscale", "Gradient", "Fuzzy Edge Detection",
+    "Fuzzy Thresholding", "Fuzzy Contrast Enhancement", "Fuzzy Brightness Enhancement",
     "Thresholding", "Histogram Equalization",
     "Canny Edge Detection", "Gaussian Blur",
     "Sharpening", "Invert Colors", "Adaptive Thresholding"
@@ -58,6 +64,26 @@ def fuzzy_edge_detection(img, low_w, med_w, high_w):
     edge_strength = np.maximum(low * low_w, np.maximum(med * med_w, high * high_w))
     return np.uint8(edge_strength * 255)
 
+def fuzzy_thresholding(img):
+    gray = apply_grayscale(img).astype(np.float32)
+    normalized = gray / 255.0
+    low = fuzz.interp_membership([0, 0.5], [1, 0], normalized)
+    high = fuzz.interp_membership([0.5, 1], [0, 1], normalized)
+    combined = np.fmax(low, high)
+    return np.uint8(combined * 255)
+
+def fuzzy_contrast_enhancement(img):
+    gray = apply_grayscale(img).astype(np.float32)
+    normalized = gray / 255.0
+    enhanced = fuzz.sigmf(normalized, 0.5, 10)
+    return np.uint8(enhanced * 255)
+
+def fuzzy_brightness_boost(img):
+    gray = apply_grayscale(img).astype(np.float32) / 255.0
+    dark = fuzz.interp_membership([0, 0.5], [1, 0], gray)
+    boost = dark * 0.5 + gray
+    return np.uint8(np.clip(boost, 0, 1) * 255)
+
 def apply_canny(img, t1, t2):
     gray = apply_grayscale(img)
     return cv2.Canny(gray, t1, t2)
@@ -94,6 +120,12 @@ if uploaded_file:
             processed = apply_hist_eq(img_np)
         elif tool == "Fuzzy Edge Detection":
             processed = fuzzy_edge_detection(img_np, low_w, med_w, high_w)
+        elif tool == "Fuzzy Thresholding":
+            processed = fuzzy_thresholding(img_np)
+        elif tool == "Fuzzy Contrast Enhancement":
+            processed = fuzzy_contrast_enhancement(img_np)
+        elif tool == "Fuzzy Brightness Enhancement":
+            processed = fuzzy_brightness_boost(img_np)
         elif tool == "Canny Edge Detection":
             processed = apply_canny(img_np, canny_t1, canny_t2)
         elif tool == "Gaussian Blur":
