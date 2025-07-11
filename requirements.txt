@@ -1,11 +1,5 @@
-import streamlit as st
-import sqlite3
-import hashlib
-import numpy as np
-import cv2
-from PIL import Image
-from io import BytesIO
-import base64
-from datetime import datetime
-import os
-import skfuzzy as fuzz
+streamlit
+opencv-python
+numpy
+Pillow
+scikit-fuzzy
