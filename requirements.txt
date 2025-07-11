@@ -4,3 +4,8 @@ numpy
 Pillow
 scikit-fuzzy
 scipy
+streamlit-authenticator
+pyjwt
+python-dotenv
+oauthlib
+requests-oauthlib
