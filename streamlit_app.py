@@ -1,3 +1,4 @@
+
 import streamlit as st
 import numpy as np
 import cv2
@@ -30,6 +31,9 @@ high_w = st.sidebar.slider("Fuzzy High Weight", 0.0, 1.0, 0.4)
 canny_t1 = st.sidebar.slider("Canny Threshold 1", 0, 500, 100)
 canny_t2 = st.sidebar.slider("Canny Threshold 2", 0, 500, 200)
 blur_k = st.sidebar.slider("Blur Kernel Size", 1, 25, 5, step=2)
+
+# Download format
+download_format = st.sidebar.selectbox("Download Format", ["JPG", "PNG"])
 
 # File Upload
 uploaded_file = st.file_uploader("\U0001F4C1 Upload Image", type=["png", "jpg", "jpeg"])
@@ -141,10 +145,12 @@ if uploaded_file:
 
         st.image(processed, caption="Processed Image", use_column_width=True)
 
-        # Download button
+        # Download button with format option
         is_gray = len(processed.shape) == 2
         processed_bgr = processed if is_gray else cv2.cvtColor(processed, cv2.COLOR_RGB2BGR)
-        _, buffer = cv2.imencode(".png", processed_bgr)
+        ext = ".jpg" if download_format == "JPG" else ".png"
+        mime = "image/jpeg" if download_format == "JPG" else "image/png"
+        _, buffer = cv2.imencode(ext, processed_bgr)
         b64 = base64.b64encode(buffer).decode()
-        href = f'<a href="data:file/png;base64,{b64}" download="processed.png">\U0001F4E5 Download Result</a>'
+        href = f'<a href="data:{mime};base64,{b64}" download="processed{ext}">📥 Download Result ({download_format})</a>'
         st.markdown(href, unsafe_allow_html=True)
