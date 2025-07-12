@@ -1,5 +1,5 @@
 import streamlit as st
-from streamlit_authenticator import Authenticate
+import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
 import os
@@ -12,9 +12,8 @@ import numpy as np
 import cv2
 import skfuzzy as fuzz
 
-# ========== Authentication Functions ==========
+# ========== Authentication Setup ==========
 def init_db():
-    """Initialize the SQLite database for user storage"""
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users
@@ -27,11 +26,9 @@ def init_db():
     conn.close()
 
 def hash_password(password):
-    """Hash password using SHA-256"""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def register_user(username, name, password, email):
-    """Register a new user in the database"""
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
     hashed_pw = hash_password(password)
@@ -46,7 +43,6 @@ def register_user(username, name, password, email):
         conn.close()
 
 def verify_user(username, password):
-    """Verify user credentials against the database"""
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
     c.execute("SELECT password FROM users WHERE username=?", (username,))
@@ -56,74 +52,68 @@ def verify_user(username, password):
         return hash_password(password) == result[0]
     return False
 
-def get_auth_config():
-    """Get or create authentication configuration file"""
+# Initialize authentication
+def setup_authentication():
+    init_db()
+    
+    # Check if config file exists, create if not
     if not os.path.exists('auth_config.yaml'):
         with open('auth_config.yaml', 'w') as file:
             yaml.dump({
                 'credentials': {
-                    'usernames': {}
-                },
-                'cookie': {
-                    'expiry_days': 30,
-                    'key': 'random_signature_key',
-                    'name': 'fuzzy_image_auth'
-                },
-                'preauthorized': {
-                    'emails': []
+                    'usernames': {},
+                    'cookie': {
+                        'expiry_days': 30,
+                        'key': 'random_signature_key',
+                        'name': 'fuzzy_image_auth'
+                    }
                 }
             }, file)
     
+    # Load config
     with open('auth_config.yaml') as file:
-        return yaml.load(file, Loader=SafeLoader)
-
-def init_authenticator():
-    """Initialize the authenticator with updated parameters"""
-    config = get_auth_config()
-    authenticator = Authenticate(
+        config = yaml.load(file, Loader=SafeLoader)
+    
+    # Create authenticator
+    authenticator = stauth.Authenticate(
         config['credentials'],
         config['cookie']['name'],
         config['cookie']['key'],
-        config['cookie']['expiry_days']
+        config['cookie']['expiry_days'],
+        config.get('preauthorized', None)
     )
-    return authenticator
-
-def login_widget():
-    """Display login widget with updated authenticator usage"""
-    authenticator = init_authenticator()
-    name, authentication_status, username = authenticator.login('Login', 'main')
     
+    return authenticator, config
+
+# ========== Authentication Widgets ==========
+def show_login(authenticator):
+    name, authentication_status, username = authenticator.login('Login', 'main')
     if authentication_status:
         st.session_state['authenticated'] = True
         st.session_state['username'] = username
         st.session_state['name'] = name
-        return True
+        st.experimental_rerun()
     elif authentication_status is False:
         st.error('Username/password is incorrect')
-        return False
     elif authentication_status is None:
         st.warning('Please enter your username and password')
-        return False
 
-def registration_widget(authenticator):
-    """Display registration form"""
-    with st.expander("Don't have an account? Register here"):
-        with st.form("registration_form"):
+def show_registration(authenticator, config):
+    with st.expander("Register New Account"):
+        with st.form("register_form"):
             username = st.text_input("Username")
-            name = st.text_input("Full name")
+            name = st.text_input("Full Name")
             email = st.text_input("Email")
             password = st.text_input("Password", type="password")
-            confirm_password = st.text_input("Confirm password", type="password")
+            confirm_password = st.text_input("Confirm Password", type="password")
             
-            submitted = st.form_submit_button("Register")
-            if submitted:
+            if st.form_submit_button("Register"):
                 if password != confirm_password:
-                    st.error("Passwords don't match")
+                    st.error("Passwords do not match!")
                 else:
                     if register_user(username, name, password, email):
                         st.success("Registration successful! Please login.")
-                        # Update auth config
-                        config = get_auth_config()
+                        # Update config
                         config['credentials']['usernames'][username] = {
                             'name': name,
                             'password': hash_password(password),
@@ -131,36 +121,14 @@ def registration_widget(authenticator):
                         }
                         with open('auth_config.yaml', 'w') as file:
                             yaml.dump(config, file)
-                        # Register with authenticator
-                        authenticator.register_user(username, name, password, email)
                     else:
-                        st.error("Username already exists")
-
-def authenticate():
-    """Main authentication function with improved error handling"""
-    init_db()
-    authenticator = init_authenticator()
-    
-    if 'authenticated' not in st.session_state:
-        st.session_state['authenticated'] = False
-    
-    if not st.session_state['authenticated']:
-        st.title("Fuzzy Image Processor - Login")
-        login_success = login_widget()
-        registration_widget(authenticator)
-        if login_success:
-            st.experimental_rerun()
-        st.stop()
-    
-    return st.session_state['username'], st.session_state['name']
+                        st.error("Username already exists!")
 
 # ========== Image Processing Functions ==========
 def apply_grayscale(img):
-    """Convert image to grayscale"""
     return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
 def apply_gradient(img):
-    """Apply Sobel gradient"""
     gray = apply_grayscale(img)
     sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0)
     sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1)
@@ -168,18 +136,15 @@ def apply_gradient(img):
     return np.uint8(grad / grad.max() * 255)
 
 def apply_threshold(img, t):
-    """Apply simple thresholding"""
     gray = apply_grayscale(img)
     _, thresh = cv2.threshold(gray, t, 255, cv2.THRESH_BINARY)
     return thresh
 
 def apply_hist_eq(img):
-    """Apply histogram equalization"""
     gray = apply_grayscale(img)
     return cv2.equalizeHist(gray)
 
 def fuzzy_edge_detection(img, low_w, med_w, high_w):
-    """Fuzzy logic-based edge detection"""
     gray = apply_grayscale(img)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     norm_img = blurred.astype(np.float32) / 255.0
@@ -190,7 +155,6 @@ def fuzzy_edge_detection(img, low_w, med_w, high_w):
     return np.uint8(edge_strength * 255)
 
 def fuzzy_thresholding(img):
-    """Fuzzy logic-based thresholding"""
     gray = apply_grayscale(img).astype(np.float32)
     normalized = gray / 255.0
     low = fuzz.interp_membership([0, 0.5], [1, 0], normalized)
@@ -199,77 +163,76 @@ def fuzzy_thresholding(img):
     return np.uint8(combined * 255)
 
 def fuzzy_contrast_enhancement(img):
-    """Fuzzy logic-based contrast enhancement"""
     gray = apply_grayscale(img).astype(np.float32)
     normalized = gray / 255.0
     enhanced = fuzz.sigmf(normalized, 0.5, 10)
     return np.uint8(enhanced * 255)
 
 def fuzzy_brightness_boost(img):
-    """Fuzzy logic-based brightness enhancement"""
     gray = apply_grayscale(img).astype(np.float32) / 255.0
     dark = fuzz.interp_membership([0, 0.5], [1, 0], gray)
     boost = dark * 0.5 + gray
     return np.uint8(np.clip(boost, 0, 1) * 255)
 
 def apply_canny(img, t1, t2):
-    """Apply Canny edge detection"""
     gray = apply_grayscale(img)
     return cv2.Canny(gray, t1, t2)
 
 def apply_blur(img, ksize):
-    """Apply Gaussian blur"""
     return cv2.GaussianBlur(img, (ksize, ksize), 0)
 
 def apply_sharpen(img):
-    """Apply sharpening filter"""
     kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
     return cv2.filter2D(img, -1, kernel)
 
 def apply_invert(img):
-    """Invert image colors"""
     return cv2.bitwise_not(img)
 
 def apply_adaptive_thresh(img):
-    """Apply adaptive thresholding"""
     gray = apply_grayscale(img)
     return cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                 cv2.THRESH_BINARY, 11, 2)
+                               cv2.THRESH_BINARY, 11, 2)
 
 # ========== Main Application ==========
 def main():
-    # Authenticate user
-    username, name = authenticate()
-    
-    # Configure page
     st.set_page_config(page_title="Fuzzy Image Processor", layout="centered")
     
-    # Display welcome message and logout button
-    st.sidebar.title(f"Welcome, {name}!")
-    authenticator = init_authenticator()
+    # Initialize authentication
+    authenticator, config = setup_authentication()
+    
+    # Check authentication status
+    if 'authenticated' not in st.session_state:
+        st.session_state['authenticated'] = False
+    
+    # Show login if not authenticated
+    if not st.session_state['authenticated']:
+        st.title("Fuzzy Image Processor - Login")
+        show_login(authenticator)
+        show_registration(authenticator, config)
+        st.stop()
+    
+    # Main app after authentication
+    st.title("🧠 Fuzzy Logic-Based Image Processing")
+    st.markdown(f"Welcome, **{st.session_state['name']}**!")
+    
+    # Logout button
     if st.sidebar.button("Logout"):
         authenticator.logout('Logout', 'main')
         st.session_state['authenticated'] = False
         st.experimental_rerun()
     
-    # Main title and description
-    st.title("🧠 Fuzzy Logic-Based Image Processing")
-    st.markdown(f"""
-    Welcome back, **{name}**! This application demonstrates soft computing principles using fuzzy logic and OpenCV. 
-    It includes various image processing tools like fuzzy edge detection, thresholding, and contrast enhancement.
-    """)
-    
-    # Sidebar Controls
+    # Tool selection
     st.sidebar.header("⚙️ Tools & Parameters")
     tool = st.sidebar.selectbox("Select Tool", [
         "Grayscale", "Gradient", "Fuzzy Edge Detection",
-        "Fuzzy Thresholding", "Fuzzy Contrast Enhancement", "Fuzzy Brightness Enhancement",
-        "Thresholding", "Histogram Equalization",
-        "Canny Edge Detection", "Gaussian Blur",
-        "Sharpening", "Invert Colors", "Adaptive Thresholding"
+        "Fuzzy Thresholding", "Fuzzy Contrast Enhancement", 
+        "Fuzzy Brightness Enhancement", "Thresholding", 
+        "Histogram Equalization", "Canny Edge Detection", 
+        "Gaussian Blur", "Sharpening", "Invert Colors", 
+        "Adaptive Thresholding"
     ])
     
-    # Parameters for different tools
+    # Parameters
     threshold = st.sidebar.slider("Threshold", 0, 255, 127)
     low_w = st.sidebar.slider("Fuzzy Low Weight", 0.0, 1.0, 0.3)
     med_w = st.sidebar.slider("Fuzzy Medium Weight", 0.0, 1.0, 0.7)
@@ -278,19 +241,15 @@ def main():
     canny_t2 = st.sidebar.slider("Canny Threshold 2", 0, 500, 200)
     blur_k = st.sidebar.slider("Blur Kernel Size", 1, 25, 5, step=2)
     
-    # Download format
-    download_format = st.sidebar.selectbox("Download Format", ["JPG", "PNG"])
+    # File upload
+    uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
     
-    # File Upload
-    uploaded_file = st.file_uploader("\U0001F4C1 Upload Image", type=["png", "jpg", "jpeg"])
-    
-    # Process image when uploaded
     if uploaded_file:
         image = Image.open(uploaded_file)
         img_np = np.array(image.convert("RGB"))
         st.image(img_np, caption="Original Image", use_column_width=True)
         
-        if st.button("\u2728 Apply Tool"):
+        if st.button("Process Image"):
             if tool == "Grayscale":
                 processed = apply_grayscale(img_np)
             elif tool == "Gradient":
@@ -317,19 +276,15 @@ def main():
                 processed = apply_invert(img_np)
             elif tool == "Adaptive Thresholding":
                 processed = apply_adaptive_thresh(img_np)
-            else:
-                processed = img_np
             
             st.image(processed, caption="Processed Image", use_column_width=True)
             
-            # Download button with format option
+            # Download option
             is_gray = len(processed.shape) == 2
             processed_bgr = processed if is_gray else cv2.cvtColor(processed, cv2.COLOR_RGB2BGR)
-            ext = ".jpg" if download_format == "JPG" else ".png"
-            mime = "image/jpeg" if download_format == "JPG" else "image/png"
-            _, buffer = cv2.imencode(ext, processed_bgr)
+            _, buffer = cv2.imencode(".jpg", processed_bgr)
             b64 = base64.b64encode(buffer).decode()
-            href = f'<a href="data:{mime};base64,{b64}" download="processed{ext}">📥 Download Result ({download_format})</a>'
+            href = f'<a href="data:image/jpeg;base64,{b64}" download="processed.jpg">Download Result</a>'
             st.markdown(href, unsafe_allow_html=True)
 
 if __name__ == "__main__":
