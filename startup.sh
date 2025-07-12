@@ -1,21 +1,14 @@
 #!/bin/bash
 
-# 1. Create directories
+# 1. Create persistent storage
 mkdir -p /var/lib/render
 
-# 2. Force-clean the Python file
-sed -i 's/\t/    /g' streamlit_app.py  # Convert tabs to spaces
-sed -i 's/^    /\t/g' streamlit_app.py  # Convert back if needed (safety)
-sed -i 's/\t/    /g' streamlit_app.py  # Final conversion to spaces
+# 2. FIX INDENTATION ERRORS (critical for Render)
+sed -i 's/\t/    /g' streamlit_app.py          # Convert tabs to spaces
+sed -i 's/[[:space:]]*$//' streamlit_app.py    # Remove trailing whitespace
+dos2unix streamlit_app.py                      # Fix line endings (if needed)
 
-# 3. Verify indentation
-if grep -n $'\t' streamlit_app.py; then
-    echo "ERROR: Tabs still found in these lines:"
-    grep -n $'\t' streamlit_app.py
-    exit 1
-fi
-
-# 4. Start Streamlit
+# 3. Start Streamlit with Render-optimized settings
 exec streamlit run streamlit_app.py \
   --server.port=$PORT \
   --server.headless=true \
