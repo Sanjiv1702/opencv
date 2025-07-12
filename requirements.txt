@@ -2,15 +2,13 @@ streamlit==1.32.2
 streamlit-authenticator==0.2.3
 PyYAML==6.0.1
 numpy==1.26.4
-opencv-python==4.9.0.80
+opencv-python-headless==4.9.0.80  # Using headless version
 scikit-fuzzy==0.4.2
 scikit-image==0.22.0
 mahotas==1.4.13
 pandas==2.2.1
-tensorflow==2.16.1
 matplotlib==3.8.3
 imageio==2.34.0
-patchify==0.2.3
 Pillow==10.2.0
 python-dotenv==1.0.1
 email-validator==2.1.1
