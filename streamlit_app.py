@@ -1,3 +1,4 @@
+# streamlit_app.py
 import streamlit as st
 import streamlit_authenticator as stauth
 import yaml
@@ -8,7 +9,10 @@ from datetime import datetime, timedelta
 import base64
 from PIL import Image
 import numpy as np
-import cv2
+try:
+    import cv2
+except ImportError:
+    from cv2 import cv2
 import skfuzzy as fuzz
 import smtplib
 from email.mime.text import MIMEText
@@ -16,19 +20,22 @@ import secrets
 import string
 
 # ========== Configuration ==========
-# Use environment variables (set in Render Dashboard)
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")  # Default to Gmail
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+# Environment variables (set in Render Dashboard)
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-APP_URL = os.getenv("APP_URL", "https://your-app-name.onrender.com")  # Your Render URL
+APP_URL = os.getenv("APP_URL", "https://your-app-name.onrender.com")
 
 # ========== Database Setup ==========
 def get_db_path():
-    # Store DB in a persistent directory
-    db_dir = os.path.join(os.getcwd(), 'data')
-    os.makedirs(db_dir, exist_ok=True)
-    return os.path.join(db_dir, 'users.db')
+    """Get persistent database path for Render or local development"""
+    if 'RENDER' in os.environ:
+        return '/var/lib/render/users.db'  # Render persistent storage
+    else:
+        db_dir = os.path.join(os.getcwd(), 'data')
+        os.makedirs(db_dir, exist_ok=True)
+        return os.path.join(db_dir, 'users.db')
 
 def init_db():
     conn = sqlite3.connect(get_db_path())
@@ -46,7 +53,7 @@ def init_db():
 
 # ========== Authentication Functions ==========
 def hash_password(password):
-    return stauth.Hasher([password]).generate()[0]  # Uses bcrypt
+    return stauth.Hasher([password]).generate()[0]
 
 def register_user(username, name, password, email):
     conn = sqlite3.connect(get_db_path())
@@ -118,8 +125,7 @@ def send_email(to_email, subject, body):
         msg['From'] = EMAIL_ADDRESS
         msg['To'] = to_email
 
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             server.send_message(msg)
         return True
@@ -132,8 +138,8 @@ def generate_reset_token():
 
 # ========== UI Components ==========
 def show_forgot_password():
-    with st.expander("Forgot Password"):
-        email = st.text_input("Enter your registered email")
+    with st.expander("🔑 Forgot Password"):
+        email = st.text_input("Enter your registered email", key="reset_email")
         
         if st.button("Send Reset Link"):
             user = get_user_by_email(email)
@@ -148,25 +154,23 @@ def show_forgot_password():
                 Hello {name},
                 
                 You requested a password reset for your account (username: {username}).
-                Please click the link below to reset your password:
+                Click this link to reset your password (expires in 1 hour):
                 
                 {reset_link}
-                
-                This link will expire in 1 hour.
                 
                 If you didn't request this, please ignore this email.
                 """
                 
                 if send_email(email, "Password Reset Request", email_body):
-                    st.success("Password reset link sent to your email!")
+                    st.success("📩 Reset link sent! Check your email.")
                 else:
-                    st.error("Failed to send reset email. Please try again later.")
+                    st.error("❌ Failed to send email. Please try again later.")
             else:
-                st.error("No account found with this email.")
+                st.error("❌ No account found with this email.")
 
 def show_forgot_username():
-    with st.expander("Forgot Username"):
-        email = st.text_input("Enter your registered email")
+    with st.expander("🧠 Forgot Username"):
+        email = st.text_input("Enter your registered email", key="recover_username")
         
         if st.button("Recover Username"):
             user = get_user_by_email(email)
@@ -175,27 +179,27 @@ def show_forgot_username():
                 email_body = f"""
                 Hello {name},
                 
-                You requested to recover your username.
                 Your username is: {username}
                 
                 If you didn't request this, please ignore this email.
                 """
                 
                 if send_email(email, "Username Recovery", email_body):
-                    st.success("Username sent to your registered email!")
+                    st.success("📩 Username sent to your email!")
                 else:
-                    st.error("Failed to send email. Please try again later.")
+                    st.error("❌ Failed to send email. Please try again later.")
             else:
-                st.error("No account found with this email.")
+                st.error("❌ No account found with this email.")
 
 def show_reset_password(email, token):
+    st.title("🔐 Reset Password")
     if not validate_reset_token(email, token):
         st.error("Invalid or expired reset token.")
         return
     
     with st.form("reset_password_form"):
-        new_password = st.text_input("New Password", type="password")
-        confirm_password = st.text_input("Confirm New Password", type="password")
+        new_password = st.text_input("New Password", type="password", key="new_pass")
+        confirm_password = st.text_input("Confirm Password", type="password", key="confirm_pass")
         
         if st.form_submit_button("Reset Password"):
             if new_password != confirm_password:
@@ -205,63 +209,133 @@ def show_reset_password(email, token):
                 if user:
                     username, _ = user
                     update_password(username, new_password)
-                    set_reset_token(email, None, None)  # Clear the token
-                    st.success("Password reset successfully! Please login with your new password.")
+                    set_reset_token(email, None, None)
+                    st.success("✅ Password reset successfully! Please login.")
+                    st.balloons()
                     st.experimental_rerun()
 
 def show_registration(authenticator, config):
-    with st.expander("Register New Account"):
+    with st.expander("📝 Register New Account"):
         with st.form("register_form"):
-            username = st.text_input("Username")
-            name = st.text_input("Full Name")
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
-            confirm_password = st.text_input("Confirm Password", type="password")
+            username = st.text_input("Username", key="reg_user")
+            name = st.text_input("Full Name", key="reg_name")
+            email = st.text_input("Email", key="reg_email")
+            password = st.text_input("Password", type="password", key="reg_pass")
+            confirm_password = st.text_input("Confirm Password", type="password", key="reg_conf_pass")
             
             if st.form_submit_button("Register"):
                 if password != confirm_password:
-                    st.error("Passwords do not match!")
+                    st.error("Passwords don't match!")
                 else:
                     if register_user(username, name, password, email):
-                        st.success("Registration successful! Please login.")
-                        # Update config
+                        st.success("🎉 Registration successful! Please login.")
                         config['credentials']['usernames'][username] = {
                             'name': name,
                             'password': hash_password(password),
                             'email': email
                         }
-                        # Save config to persistent storage
-                        config_path = os.path.join(os.getcwd(), 'data/auth_config.yaml')
-                        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+                        config_path = get_config_path()
                         with open(config_path, 'w') as file:
                             yaml.dump(config, file)
                         st.experimental_rerun()
                     else:
-                        st.error("Username already exists!")
+                        st.error("❌ Username already exists!")
 
 # ========== Image Processing Functions ==========
-# [Keep all your existing image processing functions here]
-# ... (Copy all your image processing functions unchanged)
+def apply_grayscale(img):
+    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+def apply_gradient(img):
+    gray = apply_grayscale(img)
+    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0)
+    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1)
+    grad = np.hypot(sobelx, sobely)
+    return np.uint8(grad / grad.max() * 255)
+
+def apply_threshold(img, t):
+    gray = apply_grayscale(img)
+    _, thresh = cv2.threshold(gray, t, 255, cv2.THRESH_BINARY)
+    return thresh
+
+def apply_hist_eq(img):
+    gray = apply_grayscale(img)
+    return cv2.equalizeHist(gray)
+
+def fuzzy_edge_detection(img, low_w, med_w, high_w):
+    gray = apply_grayscale(img)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    norm_img = blurred.astype(np.float32) / 255.0
+    low = np.clip((0.5 - norm_img) / 0.5, 0, 1)
+    med = 1 - np.abs(norm_img - 0.5) * 2
+    high = np.clip((norm_img - 0.5) / 0.5, 0, 1)
+    edge_strength = np.maximum(low * low_w, np.maximum(med * med_w, high * high_w))
+    return np.uint8(edge_strength * 255)
+
+def fuzzy_thresholding(img):
+    gray = apply_grayscale(img).astype(np.float32)
+    normalized = gray / 255.0
+    low = fuzz.interp_membership([0, 0.5], [1, 0], normalized)
+    high = fuzz.interp_membership([0.5, 1], [0, 1], normalized)
+    combined = np.fmax(low, high)
+    return np.uint8(combined * 255)
+
+def fuzzy_contrast_enhancement(img):
+    gray = apply_grayscale(img).astype(np.float32)
+    normalized = gray / 255.0
+    enhanced = fuzz.sigmf(normalized, 0.5, 10)
+    return np.uint8(enhanced * 255)
+
+def fuzzy_brightness_boost(img):
+    gray = apply_grayscale(img).astype(np.float32) / 255.0
+    dark = fuzz.interp_membership([0, 0.5], [1, 0], gray)
+    boost = dark * 0.5 + gray
+    return np.uint8(np.clip(boost, 0, 1) * 255)
+
+def apply_canny(img, t1, t2):
+    gray = apply_grayscale(img)
+    return cv2.Canny(gray, t1, t2)
+
+def apply_blur(img, ksize):
+    return cv2.GaussianBlur(img, (ksize, ksize), 0)
+
+def apply_sharpen(img):
+    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+    return cv2.filter2D(img, -1, kernel)
+
+def apply_invert(img):
+    return cv2.bitwise_not(img)
+
+def apply_adaptive_thresh(img):
+    gray = apply_grayscale(img)
+    return cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                               cv2.THRESH_BINARY, 11, 2)
 
 # ========== Main Application ==========
+def get_config_path():
+    if 'RENDER' in os.environ:
+        return '/var/lib/render/auth_config.yaml'
+    else:
+        config_dir = os.path.join(os.getcwd(), 'data')
+        os.makedirs(config_dir, exist_ok=True)
+        return os.path.join(config_dir, 'auth_config.yaml')
+
 def main():
+    # Render-specific configuration
     st.set_page_config(page_title="Fuzzy Image Processor", layout="centered")
-    
-    # Handle port for Render
-    if 'PORT' in os.environ:
-        st.set_option('server.port', int(os.environ['PORT']))
+    if 'RENDER' in os.environ:
+        st.set_option('server.headless', True)
+        st.set_option('server.enableCORS', False)
+        st.set_option('server.enableXsrfProtection', False)
     
     # Check for password reset
     query_params = st.experimental_get_query_params()
     if 'email' in query_params and 'token' in query_params:
-        email = query_params['email'][0]
-        token = query_params['token'][0]
-        show_reset_password(email, token)
+        show_reset_password(query_params['email'][0], query_params['token'][0])
         return
     
     # Initialize authentication
     init_db()
-    config_path = os.path.join(os.getcwd(), 'data/auth_config.yaml')
+    config_path = get_config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     
     if not os.path.exists(config_path):
@@ -302,7 +376,7 @@ def main():
             st.session_state['name'] = name
             st.experimental_rerun()
         elif authentication_status is False:
-            st.error('Username/password is incorrect')
+            st.error('❌ Username/password is incorrect')
         elif authentication_status is None:
             st.warning('Please enter your username and password')
         
@@ -315,13 +389,76 @@ def main():
     st.title("🧠 Fuzzy Logic-Based Image Processing")
     st.markdown(f"Welcome, **{st.session_state['name']}**!")
     
-    if st.sidebar.button("Logout"):
+    if st.sidebar.button("🚪 Logout"):
         authenticator.logout('Logout', 'main')
         st.session_state['authenticated'] = False
         st.experimental_rerun()
     
-    # [Rest of your existing main application code]
-    # ... (Copy all your image processing UI code here)
+    # Tool selection
+    st.sidebar.header("⚙️ Tools & Parameters")
+    tool = st.sidebar.selectbox("Select Tool", [
+        "Grayscale", "Gradient", "Fuzzy Edge Detection",
+        "Fuzzy Thresholding", "Fuzzy Contrast Enhancement", 
+        "Fuzzy Brightness Enhancement", "Thresholding", 
+        "Histogram Equalization", "Canny Edge Detection", 
+        "Gaussian Blur", "Sharpening", "Invert Colors", 
+        "Adaptive Thresholding"
+    ])
+    
+    # Parameters
+    threshold = st.sidebar.slider("Threshold", 0, 255, 127)
+    low_w = st.sidebar.slider("Fuzzy Low Weight", 0.0, 1.0, 0.3)
+    med_w = st.sidebar.slider("Fuzzy Medium Weight", 0.0, 1.0, 0.7)
+    high_w = st.sidebar.slider("Fuzzy High Weight", 0.0, 1.0, 0.4)
+    canny_t1 = st.sidebar.slider("Canny Threshold 1", 0, 500, 100)
+    canny_t2 = st.sidebar.slider("Canny Threshold 2", 0, 500, 200)
+    blur_k = st.sidebar.slider("Blur Kernel Size", 1, 25, 5, step=2)
+    
+    # File upload
+    uploaded_file = st.file_uploader("📤 Upload Image", type=["jpg", "jpeg", "png"])
+    
+    if uploaded_file:
+        image = Image.open(uploaded_file)
+        img_np = np.array(image.convert("RGB"))
+        st.image(img_np, caption="Original Image", use_column_width=True)
+        
+        if st.button("✨ Process Image"):
+            if tool == "Grayscale":
+                processed = apply_grayscale(img_np)
+            elif tool == "Gradient":
+                processed = apply_gradient(img_np)
+            elif tool == "Thresholding":
+                processed = apply_threshold(img_np, threshold)
+            elif tool == "Histogram Equalization":
+                processed = apply_hist_eq(img_np)
+            elif tool == "Fuzzy Edge Detection":
+                processed = fuzzy_edge_detection(img_np, low_w, med_w, high_w)
+            elif tool == "Fuzzy Thresholding":
+                processed = fuzzy_thresholding(img_np)
+            elif tool == "Fuzzy Contrast Enhancement":
+                processed = fuzzy_contrast_enhancement(img_np)
+            elif tool == "Fuzzy Brightness Enhancement":
+                processed = fuzzy_brightness_boost(img_np)
+            elif tool == "Canny Edge Detection":
+                processed = apply_canny(img_np, canny_t1, canny_t2)
+            elif tool == "Gaussian Blur":
+                processed = apply_blur(img_np, blur_k)
+            elif tool == "Sharpening":
+                processed = apply_sharpen(img_np)
+            elif tool == "Invert Colors":
+                processed = apply_invert(img_np)
+            elif tool == "Adaptive Thresholding":
+                processed = apply_adaptive_thresh(img_np)
+            
+            st.image(processed, caption="Processed Image", use_column_width=True)
+            
+            # Download option
+            is_gray = len(processed.shape) == 2
+            processed_bgr = processed if is_gray else cv2.cvtColor(processed, cv2.COLOR_RGB2BGR)
+            _, buffer = cv2.imencode(".jpg", processed_bgr)
+            b64 = base64.b64encode(buffer).decode()
+            href = f'<a href="data:image/jpeg;base64,{b64}" download="processed.jpg">💾 Download Result</a>'
+            st.markdown(href, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
