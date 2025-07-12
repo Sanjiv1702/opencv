@@ -320,15 +320,14 @@ def get_config_path():
         return os.path.join(config_dir, 'auth_config.yaml')
 
 def main():
-    # Render-specific configuration
+    # Render-specific configuration should be done via CLI or config.toml
     st.set_page_config(page_title="Fuzzy Image Processor", layout="centered")
-    if 'RENDER' in os.environ:
     
-    # Check for password reset
+    # Check for password reset - THIS IS THE CRITICAL FIX
     query_params = st.experimental_get_query_params()
     if 'email' in query_params and 'token' in query_params:
-        show_reset_password(query_params['email'][0], query_params['token'][0])
-        return
+        show_reset_password(query_params['email'][0], query_params['token'][0])  # Proper indentation
+        return  # Proper indentation
     
     # Initialize authentication
     init_db()
