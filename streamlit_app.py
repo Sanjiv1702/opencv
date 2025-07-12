@@ -15,6 +15,17 @@ import smtplib
 from email.mime.text import MIMEText
 import secrets
 import string
+from skimage import io, exposure
+import mahotas as mh
+import pandas as pd
+from io import BytesIO
+import tensorflow as tf
+from tensorflow.keras.applications import VGG16, ResNet50
+from tensorflow.keras.preprocessing import image
+from tensorflow.keras.applications.vgg16 import preprocess_input
+import matplotlib.pyplot as plt
+from patchify import patchify, unpatchify
+import imageio.v3 as iio
 
 # ========== Configuration ==========
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
@@ -22,6 +33,11 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 APP_URL = os.getenv("APP_URL", "https://your-app-name.onrender.com")
+
+MODELS = {
+    "VGG16": VGG16,
+    "ResNet50": ResNet50
+}
 
 # ========== Database Setup ==========
 def get_db_path():
@@ -244,73 +260,304 @@ def show_registration(authenticator, config):
                         st.error("❌ Username already exists!")
 
 # ========== Image Processing Functions ==========
-def apply_grayscale(img):
-    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+class FuzzySystems:
+    @staticmethod
+    def fuzzy_edge_detection(img, low_w=0.3, med_w=0.7, high_w=0.4):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        norm_img = blurred.astype(np.float32) / 255.0
+        
+        # Fuzzy membership functions
+        low = np.clip((0.5 - norm_img) / 0.5, 0, 1)
+        med = 1 - np.abs(norm_img - 0.5) * 2
+        high = np.clip((norm_img - 0.5) / 0.5, 0, 1)
+        
+        # Fuzzy inference
+        edge_strength = np.maximum(low * low_w, np.maximum(med * med_w, high * high_w))
+        return (edge_strength * 255).astype(np.uint8)
 
-def apply_gradient(img):
-    gray = apply_grayscale(img)
-    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-    grad = np.hypot(sobelx, sobely)
-    return np.uint8(grad / grad.max() * 255)
+    @staticmethod
+    def fuzzy_contrast_enhancement(img, a=0.5, b=10):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
+        enhanced = fuzz.sigmf(gray, a, b)
+        return (enhanced * 255).astype(np.uint8)
 
-def apply_threshold(img, t):
-    gray = apply_grayscale(img)
-    _, thresh = cv2.threshold(gray, t, 255, cv2.THRESH_BINARY)
-    return thresh
+    @staticmethod
+    def fuzzy_image_segmentation(img, n_clusters=3):
+        pixels = img.reshape((-1, 3)).astype(np.float32)
+        
+        # Initialize fuzzy c-means
+        cntr, u, _, _, _, _, _ = fuzz.cluster.cmeans(
+            pixels.T, n_clusters, 2, error=0.005, maxiter=1000
+        )
+        
+        # Assign clusters
+        cluster_membership = np.argmax(u, axis=0)
+        return cntr[cluster_membership].reshape(img.shape).astype(np.uint8)
 
-def apply_hist_eq(img):
-    gray = apply_grayscale(img)
-    return cv2.equalizeHist(gray)
+class AdvancedImageProcessor:
+    def __init__(self):
+        self.dl_models = {
+            "VGG16": VGG16(weights='imagenet'),
+            "ResNet50": ResNet50(weights='imagenet')
+        }
 
-def fuzzy_edge_detection(img, low_w, med_w, high_w):
-    gray = apply_grayscale(img)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    norm_img = blurred.astype(np.float32) / 255.0
-    low = np.clip((0.5 - norm_img) / 0.5, 0, 1)
-    med = 1 - np.abs(norm_img - 0.5) * 2
-    high = np.clip((norm_img - 0.5) / 0.5, 0, 1)
-    edge_strength = np.maximum(low * low_w, np.maximum(med * med_w, high * high_w))
-    return np.uint8(edge_strength * 255)
+    # ===== Basic Operations =====
+    @staticmethod
+    def apply_grayscale(img):
+        return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-def fuzzy_thresholding(img):
-    gray = apply_grayscale(img).astype(np.float32)
-    normalized = gray / 255.0
-    low = fuzz.interp_membership([0, 0.5], [1, 0], normalized)
-    high = fuzz.interp_membership([0.5, 1], [0, 1], normalized)
-    combined = np.fmax(low, high)
-    return np.uint8(combined * 255)
+    @staticmethod
+    def apply_gradient(img):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+        sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+        grad = np.hypot(sobelx, sobely)
+        return np.uint8(grad / grad.max() * 255)
 
-def fuzzy_contrast_enhancement(img):
-    gray = apply_grayscale(img).astype(np.float32)
-    normalized = gray / 255.0
-    enhanced = fuzz.sigmf(normalized, 0.5, 10)
-    return np.uint8(enhanced * 255)
+    @staticmethod
+    def apply_threshold(img, t):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, t, 255, cv2.THRESH_BINARY)
+        return thresh
 
-def fuzzy_brightness_boost(img):
-    gray = apply_grayscale(img).astype(np.float32) / 255.0
-    dark = fuzz.interp_membership([0, 0.5], [1, 0], gray)
-    boost = dark * 0.5 + gray
-    return np.uint8(np.clip(boost, 0, 1) * 255)
+    @staticmethod
+    def apply_hist_eq(img):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        return cv2.equalizeHist(gray)
 
-def apply_canny(img, t1, t2):
-    gray = apply_grayscale(img)
-    return cv2.Canny(gray, t1, t2)
+    @staticmethod
+    def apply_canny(img, t1, t2):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        return cv2.Canny(gray, t1, t2)
 
-def apply_blur(img, ksize):
-    return cv2.GaussianBlur(img, (ksize, ksize), 0)
+    @staticmethod
+    def apply_blur(img, ksize):
+        return cv2.GaussianBlur(img, (ksize, ksize), 0)
 
-def apply_sharpen(img):
-    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-    return cv2.filter2D(img, -1, kernel)
+    @staticmethod
+    def apply_sharpen(img):
+        kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+        return cv2.filter2D(img, -1, kernel)
 
-def apply_invert(img):
-    return cv2.bitwise_not(img)
+    @staticmethod
+    def apply_invert(img):
+        return cv2.bitwise_not(img)
 
-def apply_adaptive_thresh(img):
-    gray = apply_grayscale(img)
-    return cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                               cv2.THRESH_BINARY, 11, 2)
+    @staticmethod
+    def apply_adaptive_thresh(img):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        return cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                   cv2.THRESH_BINARY, 11, 2)
+
+    @staticmethod
+    def adjust_gamma(img, gamma=1.0):
+        invGamma = 1.0 / gamma
+        table = np.array([((i / 255.0) ** invGamma) * 255 
+                         for i in np.arange(0, 256)]).astype("uint8")
+        return cv2.LUT(img, table)
+
+    # ===== Feature Extraction =====
+    @staticmethod
+    def extract_haralick_features(img):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        features = mh.features.haralick(gray).mean(axis=0)
+        return pd.DataFrame([features], columns=[f"Haralick_{i}" for i in range(13)])
+
+    # ===== Deep Learning =====
+    def extract_dl_features(self, img, model_name="VGG16"):
+        model = self.dl_models[model_name]
+        img = cv2.resize(img, (224, 224))
+        x = image.img_to_array(img)
+        x = np.expand_dims(x, axis=0)
+        x = preprocess_input(x)
+        features = model.predict(x)
+        return features.flatten()
+
+    # ===== Panorama Stitching =====
+    @staticmethod
+    def stitch_images(images):
+        stitcher = cv2.Stitcher_create()
+        status, panorama = stitcher.stitch(images)
+        if status == cv2.Stitcher_OK:
+            return panorama
+        else:
+            raise ValueError("Image stitching failed")
+
+    # ===== 3D Visualization =====
+    @staticmethod
+    def create_3d_projection(img, elevation=30, azimuth=45):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        x, y = np.mgrid[0:gray.shape[0], 0:gray.shape[1]]
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.plot_surface(x, y, gray, cmap='viridis')
+        ax.view_init(elev=elevation, azim=azimuth)
+        return fig
+
+    # ===== Batch Processing =====
+    @staticmethod
+    def batch_process(files, operation, params={}):
+        results = []
+        for file in files:
+            img = iio.imread(file)
+            processed = getattr(AdvancedImageProcessor, operation)(img, **params)
+            results.append(processed)
+        return results
+
+def show_image_processing_tools():
+    st.sidebar.header("🔧 Image Processing Tools")
+    tool = st.sidebar.selectbox("Select Tool", [
+        "Basic Operations", "Fuzzy Logic", "Feature Extraction", 
+        "Deep Learning", "Panorama Stitching", "3D Visualization",
+        "Batch Processing", "Classic Tools"
+    ])
+
+    processor = AdvancedImageProcessor()
+    fuzzy = FuzzySystems()
+    
+    uploaded_file = st.file_uploader("📤 Upload Image", type=["jpg", "jpeg", "png"])
+    
+    if uploaded_file:
+        img = np.array(Image.open(uploaded_file).convert("RGB"))
+        st.image(img, caption="Original Image", use_column_width=True)
+        
+        if tool == "Basic Operations":
+            col1, col2 = st.columns(2)
+            with col1:
+                gamma = st.slider("Gamma Correction", 0.1, 3.0, 1.0, 0.1)
+            with col2:
+                blur = st.slider("Gaussian Blur", 0, 15, 0, 2)
+            
+            processed = processor.adjust_gamma(img, gamma)
+            if blur > 0:
+                processed = cv2.GaussianBlur(processed, (blur, blur), 0)
+        
+        elif tool == "Fuzzy Logic":
+            method = st.selectbox("Fuzzy Method", [
+                "Edge Detection", "Contrast Enhancement", "Image Segmentation"
+            ])
+            
+            if method == "Edge Detection":
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    low_w = st.slider("Low Weight", 0.0, 1.0, 0.3)
+                with col2:
+                    med_w = st.slider("Medium Weight", 0.0, 1.0, 0.7)
+                with col3:
+                    high_w = st.slider("High Weight", 0.0, 1.0, 0.4)
+                processed = fuzzy.fuzzy_edge_detection(img, low_w, med_w, high_w)
+            
+            elif method == "Contrast Enhancement":
+                a = st.slider("Alpha", 0.1, 1.0, 0.5)
+                b = st.slider("Beta", 1, 20, 10)
+                processed = fuzzy.fuzzy_contrast_enhancement(img, a, b)
+            
+            else:  # Segmentation
+                n_clusters = st.slider("Number of Clusters", 2, 10, 3)
+                processed = fuzzy.fuzzy_image_segmentation(img, n_clusters)
+        
+        elif tool == "Feature Extraction":
+            features = processor.extract_haralick_features(img)
+            st.dataframe(features)
+            return
+        
+        elif tool == "Deep Learning":
+            model = st.selectbox("Select Model", list(MODELS.keys()))
+            features = processor.extract_dl_features(img, model)
+            st.text(f"Feature Vector Length: {len(features)}")
+            st.line_chart(features[:50])  # Show first 50 features
+            return
+        
+        elif tool == "Panorama Stitching":
+            uploaded_files = st.file_uploader(
+                "Upload multiple images for stitching", 
+                type=["jpg", "jpeg", "png"], 
+                accept_multiple_files=True
+            )
+            if uploaded_files and len(uploaded_files) >= 2:
+                images = [np.array(Image.open(file).convert("RGB")) for file in uploaded_files]
+                try:
+                    processed = processor.stitch_images(images)
+                except Exception as e:
+                    st.error(f"Stitching failed: {str(e)}")
+                    return
+        
+        elif tool == "3D Visualization":
+            col1, col2 = st.columns(2)
+            with col1:
+                elevation = st.slider("Elevation", 0, 90, 30)
+            with col2:
+                azimuth = st.slider("Azimuth", 0, 360, 45)
+            
+            fig = processor.create_3d_projection(img, elevation, azimuth)
+            st.pyplot(fig)
+            return
+        
+        elif tool == "Batch Processing":
+            uploaded_files = st.file_uploader(
+                "Upload multiple images", 
+                type=["jpg", "jpeg", "png"], 
+                accept_multiple_files=True
+            )
+            if uploaded_files:
+                operation = st.selectbox("Select Operation", [
+                    "adjust_gamma", "apply_grayscale", "apply_threshold"
+                ])
+                params = {}
+                if operation == "adjust_gamma":
+                    params['gamma'] = st.slider("Gamma", 0.1, 3.0, 1.0)
+                elif operation == "apply_threshold":
+                    params['t'] = st.slider("Threshold", 0, 255, 127)
+                
+                results = processor.batch_process(uploaded_files, operation, params)
+                for i, result in enumerate(results):
+                    st.image(result, caption=f"Processed Image {i+1}", use_column_width=True)
+        
+        elif tool == "Classic Tools":
+            st.sidebar.header("⚙️ Parameters")
+            threshold = st.sidebar.slider("Threshold", 0, 255, 127)
+            canny_t1 = st.sidebar.slider("Canny Threshold 1", 0, 500, 100)
+            canny_t2 = st.sidebar.slider("Canny Threshold 2", 0, 500, 200)
+            blur_k = st.sidebar.slider("Blur Kernel Size", 1, 25, 5, step=2)
+            
+            classic_tool = st.selectbox("Select Classic Tool", [
+                "Grayscale", "Gradient", "Thresholding", 
+                "Histogram Equalization", "Canny Edge Detection", 
+                "Gaussian Blur", "Sharpening", "Invert Colors", 
+                "Adaptive Thresholding"
+            ])
+            
+            if classic_tool == "Grayscale":
+                processed = processor.apply_grayscale(img)
+            elif classic_tool == "Gradient":
+                processed = processor.apply_gradient(img)
+            elif classic_tool == "Thresholding":
+                processed = processor.apply_threshold(img, threshold)
+            elif classic_tool == "Histogram Equalization":
+                processed = processor.apply_hist_eq(img)
+            elif classic_tool == "Canny Edge Detection":
+                processed = processor.apply_canny(img, canny_t1, canny_t2)
+            elif classic_tool == "Gaussian Blur":
+                processed = processor.apply_blur(img, blur_k)
+            elif classic_tool == "Sharpening":
+                processed = processor.apply_sharpen(img)
+            elif classic_tool == "Invert Colors":
+                processed = processor.apply_invert(img)
+            elif classic_tool == "Adaptive Thresholding":
+                processed = processor.apply_adaptive_thresh(img)
+        
+        # Display processed image (if not already shown)
+        if tool not in ["Feature Extraction", "Deep Learning", "3D Visualization"]:
+            st.image(processed, caption="Processed Image", use_column_width=True)
+            
+            # Download option
+            is_gray = len(processed.shape) == 2
+            processed_bgr = processed if is_gray else cv2.cvtColor(processed, cv2.COLOR_RGB2BGR)
+            _, buffer = cv2.imencode(".jpg", processed_bgr)
+            b64 = base64.b64encode(buffer).decode()
+            href = f'<a href="data:image/jpeg;base64,{b64}" download="processed.jpg">💾 Download Result</a>'
+            st.markdown(href, unsafe_allow_html=True)
 
 # ========== Main Application ==========
 def get_config_path():
@@ -323,7 +570,7 @@ def get_config_path():
 
 def main():
     # Initialize page config
-    st.set_page_config(page_title="Fuzzy Image Processor", layout="centered")
+    st.set_page_config(page_title="Advanced Fuzzy Image Processor", layout="wide")
     
     # Check for password reset
     query_params = st.experimental_get_query_params()
@@ -361,7 +608,7 @@ def main():
         st.session_state['authenticated'] = False
     
     if not st.session_state['authenticated']:
-        st.title("Fuzzy Image Processor - Login")
+        st.title("Advanced Fuzzy Image Processor - Login")
         name, authentication_status, username = authenticator.login('Login', 'main')
         
         if authentication_status:
@@ -380,7 +627,7 @@ def main():
         st.stop()
     
     # Main app after authentication
-    st.title("🧠 Fuzzy Logic-Based Image Processing")
+    st.title("🧠 Advanced Fuzzy Logic-Based Image Processing")
     st.markdown(f"Welcome, **{st.session_state['name']}**!")
     
     if st.sidebar.button("🚪 Logout"):
@@ -388,71 +635,7 @@ def main():
         st.session_state['authenticated'] = False
         st.experimental_rerun()
     
-    # Tool selection
-    st.sidebar.header("⚙️ Tools & Parameters")
-    tool = st.sidebar.selectbox("Select Tool", [
-        "Grayscale", "Gradient", "Fuzzy Edge Detection",
-        "Fuzzy Thresholding", "Fuzzy Contrast Enhancement", 
-        "Fuzzy Brightness Enhancement", "Thresholding", 
-        "Histogram Equalization", "Canny Edge Detection", 
-        "Gaussian Blur", "Sharpening", "Invert Colors", 
-        "Adaptive Thresholding"
-    ])
-    
-    # Parameters
-    threshold = st.sidebar.slider("Threshold", 0, 255, 127)
-    low_w = st.sidebar.slider("Fuzzy Low Weight", 0.0, 1.0, 0.3)
-    med_w = st.sidebar.slider("Fuzzy Medium Weight", 0.0, 1.0, 0.7)
-    high_w = st.sidebar.slider("Fuzzy High Weight", 0.0, 1.0, 0.4)
-    canny_t1 = st.sidebar.slider("Canny Threshold 1", 0, 500, 100)
-    canny_t2 = st.sidebar.slider("Canny Threshold 2", 0, 500, 200)
-    blur_k = st.sidebar.slider("Blur Kernel Size", 1, 25, 5, step=2)
-    
-    # File upload
-    uploaded_file = st.file_uploader("📤 Upload Image", type=["jpg", "jpeg", "png"])
-    
-    if uploaded_file:
-        image = Image.open(uploaded_file)
-        img_np = np.array(image.convert("RGB"))
-        st.image(img_np, caption="Original Image", use_column_width=True)
-        
-        if st.button("✨ Process Image"):
-            if tool == "Grayscale":
-                processed = apply_grayscale(img_np)
-            elif tool == "Gradient":
-                processed = apply_gradient(img_np)
-            elif tool == "Thresholding":
-                processed = apply_threshold(img_np, threshold)
-            elif tool == "Histogram Equalization":
-                processed = apply_hist_eq(img_np)
-            elif tool == "Fuzzy Edge Detection":
-                processed = fuzzy_edge_detection(img_np, low_w, med_w, high_w)
-            elif tool == "Fuzzy Thresholding":
-                processed = fuzzy_thresholding(img_np)
-            elif tool == "Fuzzy Contrast Enhancement":
-                processed = fuzzy_contrast_enhancement(img_np)
-            elif tool == "Fuzzy Brightness Enhancement":
-                processed = fuzzy_brightness_boost(img_np)
-            elif tool == "Canny Edge Detection":
-                processed = apply_canny(img_np, canny_t1, canny_t2)
-            elif tool == "Gaussian Blur":
-                processed = apply_blur(img_np, blur_k)
-            elif tool == "Sharpening":
-                processed = apply_sharpen(img_np)
-            elif tool == "Invert Colors":
-                processed = apply_invert(img_np)
-            elif tool == "Adaptive Thresholding":
-                processed = apply_adaptive_thresh(img_np)
-            
-            st.image(processed, caption="Processed Image", use_column_width=True)
-            
-            # Download option
-            is_gray = len(processed.shape) == 2
-            processed_bgr = processed if is_gray else cv2.cvtColor(processed, cv2.COLOR_RGB2BGR)
-            _, buffer = cv2.imencode(".jpg", processed_bgr)
-            b64 = base64.b64encode(buffer).decode()
-            href = f'<a href="data:image/jpeg;base64,{b64}" download="processed.jpg">💾 Download Result</a>'
-            st.markdown(href, unsafe_allow_html=True)
+    show_image_processing_tools()
 
 if __name__ == "__main__":
     main()
