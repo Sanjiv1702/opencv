@@ -7,9 +7,3 @@ __pycache__/
 .venv
 auth_config.yaml
 *.DS_Store
-git rm README.txt
-git rm --cached users.db
-echo "users.db" >> .gitignore
-git add .gitignore
-git commit -m "Removed README.txt and excluded users.db"
-git push
