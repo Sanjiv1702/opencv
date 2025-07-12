@@ -1,26 +1,20 @@
 FROM python:3.10-slim
 
-# Install system dependencies for OpenCV and other requirements
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install Python dependencies first for caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
 COPY . .
 
-# Set the correct permissions for Render
-RUN chmod a+x /app
+# Use a shell script to handle the PORT variable
+RUN echo '#!/bin/sh\nstreamlit run streamlit_app.py --server.port ${PORT:-8501} --server.address=0.0.0.0' > entrypoint.sh \
+    && chmod +x entrypoint.sh
 
-# Run the application
-CMD ["streamlit", "run", "streamlit_app.py", "--server.port=$PORT", "--server.address=0.0.0.0"]
+CMD ["./entrypoint.sh"]
