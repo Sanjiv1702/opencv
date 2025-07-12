@@ -84,8 +84,7 @@ def init_authenticator():
         config['credentials'],
         config['cookie']['name'],
         config['cookie']['key'],
-        config['cookie']['expiry_days'],
-        config['preauthorized']
+        config['cookie']['expiry_days']
     )
     return authenticator
 
@@ -106,7 +105,7 @@ def login_widget():
         st.warning('Please enter your username and password')
         return False
 
-def registration_widget():
+def registration_widget(authenticator):
     """Display registration form"""
     with st.expander("Don't have an account? Register here"):
         with st.form("registration_form"):
@@ -132,12 +131,15 @@ def registration_widget():
                         }
                         with open('auth_config.yaml', 'w') as file:
                             yaml.dump(config, file)
+                        # Register with authenticator
+                        authenticator.register_user(username, name, password, email)
                     else:
                         st.error("Username already exists")
 
 def authenticate():
     """Main authentication function with improved error handling"""
     init_db()
+    authenticator = init_authenticator()
     
     if 'authenticated' not in st.session_state:
         st.session_state['authenticated'] = False
@@ -145,9 +147,9 @@ def authenticate():
     if not st.session_state['authenticated']:
         st.title("Fuzzy Image Processor - Login")
         login_success = login_widget()
+        registration_widget(authenticator)
         if login_success:
             st.experimental_rerun()
-        registration_widget()
         st.stop()
     
     return st.session_state['username'], st.session_state['name']
@@ -244,7 +246,9 @@ def main():
     
     # Display welcome message and logout button
     st.sidebar.title(f"Welcome, {name}!")
+    authenticator = init_authenticator()
     if st.sidebar.button("Logout"):
+        authenticator.logout('Logout', 'main')
         st.session_state['authenticated'] = False
         st.experimental_rerun()
     
