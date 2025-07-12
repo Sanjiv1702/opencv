@@ -37,19 +37,39 @@ def get_db_path():
         os.makedirs(db_dir, exist_ok=True)
         return os.path.join(db_dir, 'users.db')
 
+def get_db_path():
+    """Get the correct database path for both local and Render environments"""
+    if os.environ.get('RENDER'):
+        # On Render, use persistent storage path
+        render_db_path = '/var/lib/render/users.db'
+        os.makedirs(os.path.dirname(render_db_path), exist_ok=True)
+        return render_db_path
+    else:
+        # Local development path
+        local_db_path = os.path.join(os.getcwd(), 'data', 'users.db')
+        os.makedirs(os.path.dirname(local_db_path), exist_ok=True)
+        return local_db_path
+        
 def init_db():
-    conn = sqlite3.connect(get_db_path())
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (username TEXT PRIMARY KEY, 
-                  name TEXT, 
-                  password TEXT, 
-                  email TEXT,
-                  reset_token TEXT,
-                  token_expiry TIMESTAMP,
-                  created_at TIMESTAMP)''')
-    conn.commit()
-    conn.close()
+    try:
+        db_path = get_db_path()
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS users
+                     (username TEXT PRIMARY KEY, 
+                      name TEXT, 
+                      password TEXT, 
+                      email TEXT,
+                      reset_token TEXT,
+                      token_expiry TIMESTAMP,
+                      created_at TIMESTAMP)''')
+        conn.commit()
+    except Exception as e:
+        st.error(f"Database initialization failed: {str(e)}")
+        raise
+    finally:
+        if 'conn' in locals():
+            conn.close()
 
 # ========== Authentication Functions ==========
 def hash_password(password):
@@ -320,14 +340,14 @@ def get_config_path():
         return os.path.join(config_dir, 'auth_config.yaml')
 
 def main():
-    # Render-specific configuration should be done via CLI or config.toml
+    # Initialize with only page config
     st.set_page_config(page_title="Fuzzy Image Processor", layout="centered")
     
-    # Check for password reset - THIS IS THE CRITICAL FIX
+    # Check for password reset
     query_params = st.experimental_get_query_params()
     if 'email' in query_params and 'token' in query_params:
-        show_reset_password(query_params['email'][0], query_params['token'][0])  # Proper indentation
-        return  # Proper indentation
+        show_reset_password(query_params['email'][0], query_params['token'][0])
+        return
     
     # Initialize authentication
     init_db()
