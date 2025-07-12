@@ -9,3 +9,4 @@ pyjwt
 python-dotenv
 oauthlib
 requests-oauthlib
+pyyaml
