@@ -2,6 +2,6 @@ streamlit==1.28.0
 streamlit-authenticator==0.2.3
 pyyaml==6.0
 numpy==1.24.0
-opencv-python==4.7.0
+opencv-python-headless==4.7.0
 pillow==9.5.0
 scikit-fuzzy==0.4.2
