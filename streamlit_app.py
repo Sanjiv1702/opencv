@@ -11,9 +11,7 @@ import base64
 from PIL import Image
 import numpy as np
 import cv2
-import skfuzzy as fuzz
 
-# DB setup
 def init_db():
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
@@ -29,30 +27,6 @@ def init_db():
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
-
-def register_user(username, name, password, email):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    hashed_pw = hash_password(password)
-    try:
-        c.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?)",
-                  (username, name, hashed_pw, email, datetime.now()))
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-    finally:
-        conn.close()
-
-def verify_user(username, password):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute("SELECT password FROM users WHERE username=?", (username,))
-    result = c.fetchone()
-    conn.close()
-    if result:
-        return hash_password(password) == result[0]
-    return False
 
 def setup_authentication():
     init_db()
@@ -86,7 +60,6 @@ def setup_authentication():
     )
     return authenticator, config
 
-# UI
 def show_login(authenticator):
     name, auth_status, username = authenticator.login("Login", "main")
     if auth_status:
@@ -114,7 +87,7 @@ def main():
         show_login(authenticator)
         st.stop()
 
-    st.title("🧠 Fuzzy Image Processing")
+    st.title("🧠 Simple Image Processing")
     st.markdown(f"Welcome, **{st.session_state['name']}**!")
 
     if st.sidebar.button("Logout"):
