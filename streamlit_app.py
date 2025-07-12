@@ -589,7 +589,7 @@ def main():
     st.set_page_config(page_title="Advanced Fuzzy Image Processor", layout="wide")
     
     # Check for password reset
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params
     if 'email' in query_params and 'token' in query_params:
         show_reset_password(query_params['email'][0], query_params['token'][0])
         return
