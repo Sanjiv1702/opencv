@@ -1,0 +1,13 @@
+credentials:
+  usernames:
+    admin:
+      name: Admin User
+      password: 8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918
+      email: admin@example.com
+cookie:
+  expiry_days: 30
+  key: random_signature_key
+  name: fuzzy_image_auth
+preauthorized:
+  emails:
+    - admin@example.com

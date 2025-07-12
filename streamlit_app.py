@@ -165,3 +165,23 @@ def authenticate():
         st.stop()
     
     return st.session_state['username'], st.session_state['name']
+
+# === Image Processing with Fuzzy Logic ===
+st.title("Fuzzy Image Processor")
+st.subheader("Upload an image to apply edge detection")
+
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+
+if uploaded_file is not None:
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    image = cv2.imdecode(file_bytes, 1)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Apply Sobel edge detection
+    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=5)
+    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=5)
+    magnitude = np.sqrt(sobelx**2 + sobely**2)
+    magnitude = np.uint8(np.clip(magnitude, 0, 255))
+
+    st.image(image, caption='Original Image', use_column_width=True)
+    st.image(magnitude, caption='Edge Detected Image', use_column_width=True)
