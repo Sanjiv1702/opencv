@@ -76,7 +76,7 @@ def verify_user(username, password):
     result = c.fetchone()
     conn.close()
     if result:
-        return stauth.authenticate_user(username, password, {'usernames': {username: {'password': result[0]}})
+        return stauth.authenticate_user(username, password, {'usernames': {username: {'password': result[0]}}})
     return False
 
 def get_user_by_email(email):
