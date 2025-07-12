@@ -323,9 +323,6 @@ def main():
     # Render-specific configuration
     st.set_page_config(page_title="Fuzzy Image Processor", layout="centered")
     if 'RENDER' in os.environ:
-        st.set_option('server.headless', True)
-        st.set_option('server.enableCORS', False)
-        st.set_option('server.enableXsrfProtection', False)
     
     # Check for password reset
     query_params = st.experimental_get_query_params()
