@@ -9,10 +9,7 @@ from datetime import datetime, timedelta
 import base64
 from PIL import Image
 import numpy as np
-try:
-    import cv2
-except ImportError:
-    from cv2 import cv2
+import cv2
 import skfuzzy as fuzz
 import smtplib
 from email.mime.text import MIMEText
@@ -20,7 +17,6 @@ import secrets
 import string
 
 # ========== Configuration ==========
-# Environment variables (set in Render Dashboard)
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
@@ -30,30 +26,16 @@ APP_URL = os.getenv("APP_URL", "https://your-app-name.onrender.com")
 # ========== Database Setup ==========
 def get_db_path():
     """Get persistent database path for Render or local development"""
-    if 'RENDER' in os.environ:
-        return '/var/lib/render/users.db'  # Render persistent storage
-    else:
-        db_dir = os.path.join(os.getcwd(), 'data')
-        os.makedirs(db_dir, exist_ok=True)
-        return os.path.join(db_dir, 'users.db')
-
-def get_db_path():
-    """Get the correct database path for both local and Render environments"""
     if os.environ.get('RENDER'):
-        # On Render, use persistent storage path
-        render_db_path = '/var/lib/render/users.db'
-        os.makedirs(os.path.dirname(render_db_path), exist_ok=True)
-        return render_db_path
+        path = '/var/lib/render/users.db'
     else:
-        # Local development path
-        local_db_path = os.path.join(os.getcwd(), 'data', 'users.db')
-        os.makedirs(os.path.dirname(local_db_path), exist_ok=True)
-        return local_db_path
-        
+        path = os.path.join(os.getcwd(), 'data', 'users.db')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return path
+
 def init_db():
     try:
-        db_path = get_db_path()
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(get_db_path())
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS users
                      (username TEXT PRIMARY KEY, 
@@ -81,7 +63,7 @@ def register_user(username, name, password, email):
     hashed_pw = hash_password(password)
     try:
         c.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)",
-                  (username, name, hashed_pw, email, None, None, datetime.now()))
+                 (username, name, hashed_pw, email, None, None, datetime.now()))
         conn.commit()
         return True
     except sqlite3.IntegrityError:
@@ -96,7 +78,7 @@ def verify_user(username, password):
     result = c.fetchone()
     conn.close()
     if result:
-        return stauth.authenticate_user(username, password, {'usernames': {username: {'password': result[0]}}})
+        return stauth.authenticate_user(username, password, {'usernames': {username: {'password': result[0]}})
     return False
 
 def get_user_by_email(email):
@@ -267,8 +249,8 @@ def apply_grayscale(img):
 
 def apply_gradient(img):
     gray = apply_grayscale(img)
-    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0)
-    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1)
+    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
     grad = np.hypot(sobelx, sobely)
     return np.uint8(grad / grad.max() * 255)
 
@@ -332,15 +314,15 @@ def apply_adaptive_thresh(img):
 
 # ========== Main Application ==========
 def get_config_path():
-    if 'RENDER' in os.environ:
-        return '/var/lib/render/auth_config.yaml'
+    if os.environ.get('RENDER'):
+        path = '/var/lib/render/auth_config.yaml'
     else:
-        config_dir = os.path.join(os.getcwd(), 'data')
-        os.makedirs(config_dir, exist_ok=True)
-        return os.path.join(config_dir, 'auth_config.yaml')
+        path = os.path.join(os.getcwd(), 'data', 'auth_config.yaml')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return path
 
 def main():
-    # Initialize with only page config
+    # Initialize page config
     st.set_page_config(page_title="Fuzzy Image Processor", layout="centered")
     
     # Check for password reset
@@ -352,18 +334,15 @@ def main():
     # Initialize authentication
     init_db()
     config_path = get_config_path()
-    os.makedirs(os.path.dirname(config_path), exist_ok=True)
     
     if not os.path.exists(config_path):
         with open(config_path, 'w') as file:
             yaml.dump({
-                'credentials': {
-                    'usernames': {},
-                    'cookie': {
-                        'expiry_days': 30,
-                        'key': 'random_signature_key',
-                        'name': 'fuzzy_image_auth'
-                    }
+                'credentials': {'usernames': {}},
+                'cookie': {
+                    'expiry_days': 30,
+                    'key': 'random_signature_key',
+                    'name': 'fuzzy_image_auth'
                 }
             }, file)
     
@@ -374,8 +353,7 @@ def main():
         config['credentials'],
         config['cookie']['name'],
         config['cookie']['key'],
-        config['cookie']['expiry_days'],
-        config.get('preauthorized', None)
+        config['cookie']['expiry_days']
     )
     
     # Authentication check
@@ -392,7 +370,7 @@ def main():
             st.session_state['name'] = name
             st.experimental_rerun()
         elif authentication_status is False:
-            st.error('❌ Username/password is incorrect')
+            st.error('Username/password is incorrect')
         elif authentication_status is None:
             st.warning('Please enter your username and password')
         
