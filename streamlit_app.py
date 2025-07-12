@@ -10,9 +10,11 @@ import base64
 from PIL import Image
 import numpy as np
 import cv2
+import skfuzzy as fuzz
 
-# Initialize database
+# ========== Authentication Functions ==========
 def init_db():
+    """Initialize the SQLite database for user storage"""
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users
@@ -24,12 +26,12 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Hash password
 def hash_password(password):
+    """Hash password using SHA-256"""
     return hashlib.sha256(password.encode()).hexdigest()
 
-# Register new user
 def register_user(username, name, password, email):
+    """Register a new user in the database"""
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
     hashed_pw = hash_password(password)
@@ -43,8 +45,8 @@ def register_user(username, name, password, email):
     finally:
         conn.close()
 
-# Verify user
 def verify_user(username, password):
+    """Verify user credentials against the database"""
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
     c.execute("SELECT password FROM users WHERE username=?", (username,))
@@ -54,8 +56,8 @@ def verify_user(username, password):
         return hash_password(password) == result[0]
     return False
 
-# Authentication configuration
 def get_auth_config():
+    """Get or create authentication configuration file"""
     if not os.path.exists('auth_config.yaml'):
         with open('auth_config.yaml', 'w') as file:
             yaml.dump({
@@ -75,8 +77,8 @@ def get_auth_config():
     with open('auth_config.yaml') as file:
         return yaml.load(file, Loader=SafeLoader)
 
-# Initialize authenticator
 def init_authenticator():
+    """Initialize the authenticator"""
     config = get_auth_config()
     authenticator = Authenticate(
         config['credentials'],
@@ -87,8 +89,8 @@ def init_authenticator():
     )
     return authenticator
 
-# Login widget
 def login_widget():
+    """Display login widget"""
     authenticator = init_authenticator()
     name, authentication_status, username = authenticator.login('Login', 'main')
     
@@ -103,8 +105,8 @@ def login_widget():
     elif authentication_status is None:
         return False
 
-# Registration widget
 def registration_widget():
+    """Display registration form"""
     with st.expander("Don't have an account? Register here"):
         with st.form("registration_form"):
             username = st.text_input("Username")
@@ -132,8 +134,8 @@ def registration_widget():
                     else:
                         st.error("Username already exists")
 
-# Social login options
 def social_login():
+    """Display social login options (placeholder)"""
     st.markdown("### Or login with:")
     col1, col2, col3 = st.columns(3)
     
@@ -149,8 +151,8 @@ def social_login():
         if st.button("Twitter"):
             st.info("Twitter login coming soon!")
 
-# Main auth function
 def authenticate():
+    """Main authentication function"""
     init_db()
     
     if 'authenticated' not in st.session_state:
@@ -166,22 +168,181 @@ def authenticate():
     
     return st.session_state['username'], st.session_state['name']
 
-# === Image Processing with Fuzzy Logic ===
-st.title("Fuzzy Image Processor")
-st.subheader("Upload an image to apply edge detection")
+# ========== Image Processing Functions ==========
+def apply_grayscale(img):
+    """Convert image to grayscale"""
+    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+def apply_gradient(img):
+    """Apply Sobel gradient"""
+    gray = apply_grayscale(img)
+    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0)
+    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1)
+    grad = np.hypot(sobelx, sobely)
+    return np.uint8(grad / grad.max() * 255)
 
-if uploaded_file is not None:
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    image = cv2.imdecode(file_bytes, 1)
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+def apply_threshold(img, t):
+    """Apply simple thresholding"""
+    gray = apply_grayscale(img)
+    _, thresh = cv2.threshold(gray, t, 255, cv2.THRESH_BINARY)
+    return thresh
 
-    # Apply Sobel edge detection
-    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=5)
-    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=5)
-    magnitude = np.sqrt(sobelx**2 + sobely**2)
-    magnitude = np.uint8(np.clip(magnitude, 0, 255))
+def apply_hist_eq(img):
+    """Apply histogram equalization"""
+    gray = apply_grayscale(img)
+    return cv2.equalizeHist(gray)
 
-    st.image(image, caption='Original Image', use_column_width=True)
-    st.image(magnitude, caption='Edge Detected Image', use_column_width=True)
+def fuzzy_edge_detection(img, low_w, med_w, high_w):
+    """Fuzzy logic-based edge detection"""
+    gray = apply_grayscale(img)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    norm_img = blurred.astype(np.float32) / 255.0
+    low = np.clip((0.5 - norm_img) / 0.5, 0, 1)
+    med = 1 - np.abs(norm_img - 0.5) * 2
+    high = np.clip((norm_img - 0.5) / 0.5, 0, 1)
+    edge_strength = np.maximum(low * low_w, np.maximum(med * med_w, high * high_w))
+    return np.uint8(edge_strength * 255)
+
+def fuzzy_thresholding(img):
+    """Fuzzy logic-based thresholding"""
+    gray = apply_grayscale(img).astype(np.float32)
+    normalized = gray / 255.0
+    low = fuzz.interp_membership([0, 0.5], [1, 0], normalized)
+    high = fuzz.interp_membership([0.5, 1], [0, 1], normalized)
+    combined = np.fmax(low, high)
+    return np.uint8(combined * 255)
+
+def fuzzy_contrast_enhancement(img):
+    """Fuzzy logic-based contrast enhancement"""
+    gray = apply_grayscale(img).astype(np.float32)
+    normalized = gray / 255.0
+    enhanced = fuzz.sigmf(normalized, 0.5, 10)
+    return np.uint8(enhanced * 255)
+
+def fuzzy_brightness_boost(img):
+    """Fuzzy logic-based brightness enhancement"""
+    gray = apply_grayscale(img).astype(np.float32) / 255.0
+    dark = fuzz.interp_membership([0, 0.5], [1, 0], gray)
+    boost = dark * 0.5 + gray
+    return np.uint8(np.clip(boost, 0, 1) * 255)
+
+def apply_canny(img, t1, t2):
+    """Apply Canny edge detection"""
+    gray = apply_grayscale(img)
+    return cv2.Canny(gray, t1, t2)
+
+def apply_blur(img, ksize):
+    """Apply Gaussian blur"""
+    return cv2.GaussianBlur(img, (ksize, ksize), 0)
+
+def apply_sharpen(img):
+    """Apply sharpening filter"""
+    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+    return cv2.filter2D(img, -1, kernel)
+
+def apply_invert(img):
+    """Invert image colors"""
+    return cv2.bitwise_not(img)
+
+def apply_adaptive_thresh(img):
+    """Apply adaptive thresholding"""
+    gray = apply_grayscale(img)
+    return cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                 cv2.THRESH_BINARY, 11, 2)
+
+# ========== Main Application ==========
+def main():
+    # Authenticate user
+    username, name = authenticate()
+    
+    # Configure page
+    st.set_page_config(page_title="Fuzzy Image Processor", layout="centered")
+    
+    # Display welcome message and logout button
+    st.sidebar.title(f"Welcome, {name}!")
+    if st.sidebar.button("Logout"):
+        st.session_state['authenticated'] = False
+        st.experimental_rerun()
+    
+    # Main title and description
+    st.title("🧠 Fuzzy Logic-Based Image Processing")
+    st.markdown(f"""
+    Welcome back, **{name}**! This application demonstrates soft computing principles using fuzzy logic and OpenCV. 
+    It includes various image processing tools like fuzzy edge detection, thresholding, and contrast enhancement.
+    """)
+    
+    # Sidebar Controls
+    st.sidebar.header("⚙️ Tools & Parameters")
+    tool = st.sidebar.selectbox("Select Tool", [
+        "Grayscale", "Gradient", "Fuzzy Edge Detection",
+        "Fuzzy Thresholding", "Fuzzy Contrast Enhancement", "Fuzzy Brightness Enhancement",
+        "Thresholding", "Histogram Equalization",
+        "Canny Edge Detection", "Gaussian Blur",
+        "Sharpening", "Invert Colors", "Adaptive Thresholding"
+    ])
+    
+    # Parameters for different tools
+    threshold = st.sidebar.slider("Threshold", 0, 255, 127)
+    low_w = st.sidebar.slider("Fuzzy Low Weight", 0.0, 1.0, 0.3)
+    med_w = st.sidebar.slider("Fuzzy Medium Weight", 0.0, 1.0, 0.7)
+    high_w = st.sidebar.slider("Fuzzy High Weight", 0.0, 1.0, 0.4)
+    canny_t1 = st.sidebar.slider("Canny Threshold 1", 0, 500, 100)
+    canny_t2 = st.sidebar.slider("Canny Threshold 2", 0, 500, 200)
+    blur_k = st.sidebar.slider("Blur Kernel Size", 1, 25, 5, step=2)
+    
+    # Download format
+    download_format = st.sidebar.selectbox("Download Format", ["JPG", "PNG"])
+    
+    # File Upload
+    uploaded_file = st.file_uploader("\U0001F4C1 Upload Image", type=["png", "jpg", "jpeg"])
+    
+    # Process image when uploaded
+    if uploaded_file:
+        image = Image.open(uploaded_file)
+        img_np = np.array(image.convert("RGB"))
+        st.image(img_np, caption="Original Image", use_column_width=True)
+        
+        if st.button("\u2728 Apply Tool"):
+            if tool == "Grayscale":
+                processed = apply_grayscale(img_np)
+            elif tool == "Gradient":
+                processed = apply_gradient(img_np)
+            elif tool == "Thresholding":
+                processed = apply_threshold(img_np, threshold)
+            elif tool == "Histogram Equalization":
+                processed = apply_hist_eq(img_np)
+            elif tool == "Fuzzy Edge Detection":
+                processed = fuzzy_edge_detection(img_np, low_w, med_w, high_w)
+            elif tool == "Fuzzy Thresholding":
+                processed = fuzzy_thresholding(img_np)
+            elif tool == "Fuzzy Contrast Enhancement":
+                processed = fuzzy_contrast_enhancement(img_np)
+            elif tool == "Fuzzy Brightness Enhancement":
+                processed = fuzzy_brightness_boost(img_np)
+            elif tool == "Canny Edge Detection":
+                processed = apply_canny(img_np, canny_t1, canny_t2)
+            elif tool == "Gaussian Blur":
+                processed = apply_blur(img_np, blur_k)
+            elif tool == "Sharpening":
+                processed = apply_sharpen(img_np)
+            elif tool == "Invert Colors":
+                processed = apply_invert(img_np)
+            elif tool == "Adaptive Thresholding":
+                processed = apply_adaptive_thresh(img_np)
+            else:
+                processed = img_np
+            
+            st.image(processed, caption="Processed Image", use_column_width=True)
+            
+            # Download button with format option
+            is_gray = len(processed.shape) == 2
+            processed_bgr = processed if is_gray else cv2.cvtColor(processed, cv2.COLOR_RGB2BGR)
+            ext = ".jpg" if download_format == "JPG" else ".png"
+            mime = "image/jpeg" if download_format == "JPG" else "image/png"
+            _, buffer = cv2.imencode(ext, processed_bgr)
+            b64 = base64.b64encode(buffer).decode()
+            href = f'<a href="data:{mime};base64,{b64}" download="processed{ext}">📥 Download Result ({download_format})</a>'
+            st.markdown(href, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
