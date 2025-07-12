@@ -1,12 +1,5 @@
 #!/bin/bash
-# Initialize data directory
-mkdir -p data
-
-# Set environment variables for Render
-export RENDER=true
-export PORT=${PORT:-10000}
-
-# Start Streamlit
+mkdir -p /var/lib/render  # For persistent storage on Render
 streamlit run streamlit_app.py \
   --server.port=$PORT \
   --server.headless=true \
