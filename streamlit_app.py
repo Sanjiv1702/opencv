@@ -78,7 +78,7 @@ def get_auth_config():
         return yaml.load(file, Loader=SafeLoader)
 
 def init_authenticator():
-    """Initialize the authenticator"""
+    """Initialize the authenticator with updated parameters"""
     config = get_auth_config()
     authenticator = Authenticate(
         config['credentials'],
@@ -90,7 +90,7 @@ def init_authenticator():
     return authenticator
 
 def login_widget():
-    """Display login widget"""
+    """Display login widget with updated authenticator usage"""
     authenticator = init_authenticator()
     name, authentication_status, username = authenticator.login('Login', 'main')
     
@@ -103,6 +103,7 @@ def login_widget():
         st.error('Username/password is incorrect')
         return False
     elif authentication_status is None:
+        st.warning('Please enter your username and password')
         return False
 
 def registration_widget():
@@ -134,25 +135,8 @@ def registration_widget():
                     else:
                         st.error("Username already exists")
 
-def social_login():
-    """Display social login options (placeholder)"""
-    st.markdown("### Or login with:")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("Google"):
-            st.info("Google login coming soon!")
-    
-    with col2:
-        if st.button("GitHub"):
-            st.info("GitHub login coming soon!")
-    
-    with col3:
-        if st.button("Twitter"):
-            st.info("Twitter login coming soon!")
-
 def authenticate():
-    """Main authentication function"""
+    """Main authentication function with improved error handling"""
     init_db()
     
     if 'authenticated' not in st.session_state:
@@ -160,10 +144,10 @@ def authenticate():
     
     if not st.session_state['authenticated']:
         st.title("Fuzzy Image Processor - Login")
-        if login_widget():
+        login_success = login_widget()
+        if login_success:
             st.experimental_rerun()
         registration_widget()
-        social_login()
         st.stop()
     
     return st.session_state['username'], st.session_state['name']
