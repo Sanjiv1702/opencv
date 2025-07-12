@@ -1,7 +1,9 @@
 #!/bin/bash
-mkdir -p /var/lib/render  # For persistent storage on Render
+mkdir -p /var/lib/render
+
 streamlit run streamlit_app.py \
   --server.port=$PORT \
   --server.headless=true \
   --server.enableCORS=false \
-  --server.enableXsrfProtection=false
+  --server.enableXsrfProtection=false \
+  --server.fileWatcherType=none
