@@ -21,6 +21,11 @@ import pandas as pd
 from io import BytesIO
 import tensorflow as tf
 from tensorflow.keras.applications import VGG16, ResNet50
+# TO (lazy load inside functions):
+def get_dl_features(img, model_name="VGG16"):
+    import tensorflow as tf  # ← Import only when needed
+    from tensorflow.keras.applications import VGG16
+    model = VGG16(weights='imagenet')
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications.vgg16 import preprocess_input
 import matplotlib.pyplot as plt
@@ -419,145 +424,156 @@ def show_image_processing_tools():
     uploaded_file = st.file_uploader("📤 Upload Image", type=["jpg", "jpeg", "png"])
     
     if uploaded_file:
-        img = np.array(Image.open(uploaded_file).convert("RGB"))
-        st.image(img, caption="Original Image", use_column_width=True)
-        
-        if tool == "Basic Operations":
-            col1, col2 = st.columns(2)
-            with col1:
-                gamma = st.slider("Gamma Correction", 0.1, 3.0, 1.0, 0.1)
-            with col2:
-                blur = st.slider("Gaussian Blur", 0, 15, 0, 2)
+        try:
+            img = np.array(Image.open(uploaded_file).convert("RGB"))
+            st.image(img, caption="Original Image", use_column_width=True)
             
-            processed = processor.adjust_gamma(img, gamma)
-            if blur > 0:
-                processed = cv2.GaussianBlur(processed, (blur, blur), 0)
-        
-        elif tool == "Fuzzy Logic":
-            method = st.selectbox("Fuzzy Method", [
-                "Edge Detection", "Contrast Enhancement", "Image Segmentation"
-            ])
-            
-            if method == "Edge Detection":
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    low_w = st.slider("Low Weight", 0.0, 1.0, 0.3)
-                with col2:
-                    med_w = st.slider("Medium Weight", 0.0, 1.0, 0.7)
-                with col3:
-                    high_w = st.slider("High Weight", 0.0, 1.0, 0.4)
-                processed = fuzzy.fuzzy_edge_detection(img, low_w, med_w, high_w)
-            
-            elif method == "Contrast Enhancement":
-                a = st.slider("Alpha", 0.1, 1.0, 0.5)
-                b = st.slider("Beta", 1, 20, 10)
-                processed = fuzzy.fuzzy_contrast_enhancement(img, a, b)
-            
-            else:  # Segmentation
-                n_clusters = st.slider("Number of Clusters", 2, 10, 3)
-                processed = fuzzy.fuzzy_image_segmentation(img, n_clusters)
-        
-        elif tool == "Feature Extraction":
-            features = processor.extract_haralick_features(img)
-            st.dataframe(features)
-            return
-        
-        elif tool == "Deep Learning":
-            model = st.selectbox("Select Model", list(MODELS.keys()))
-            features = processor.extract_dl_features(img, model)
-            st.text(f"Feature Vector Length: {len(features)}")
-            st.line_chart(features[:50])  # Show first 50 features
-            return
-        
-        elif tool == "Panorama Stitching":
-            uploaded_files = st.file_uploader(
-                "Upload multiple images for stitching", 
-                type=["jpg", "jpeg", "png"], 
-                accept_multiple_files=True
-            )
-            if uploaded_files and len(uploaded_files) >= 2:
-                images = [np.array(Image.open(file).convert("RGB")) for file in uploaded_files]
+            if st.button("✨ Process Image"):
                 try:
-                    processed = processor.stitch_images(images)
+                    with st.spinner("Processing..."):
+                        processed = None
+                        
+                        if tool == "Basic Operations":
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                gamma = st.slider("Gamma Correction", 0.1, 3.0, 1.0, 0.1)
+                            with col2:
+                                blur = st.slider("Gaussian Blur", 0, 15, 0, 2)
+                            
+                            processed = processor.adjust_gamma(img, gamma)
+                            if blur > 0:
+                                processed = cv2.GaussianBlur(processed, (blur, blur), 0)
+                        
+                        elif tool == "Fuzzy Logic":
+                            method = st.selectbox("Fuzzy Method", [
+                                "Edge Detection", "Contrast Enhancement", "Image Segmentation"
+                            ])
+                            
+                            if method == "Edge Detection":
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    low_w = st.slider("Low Weight", 0.0, 1.0, 0.3)
+                                with col2:
+                                    med_w = st.slider("Medium Weight", 0.0, 1.0, 0.7)
+                                with col3:
+                                    high_w = st.slider("High Weight", 0.0, 1.0, 0.4)
+                                processed = fuzzy.fuzzy_edge_detection(img, low_w, med_w, high_w)
+                            
+                            elif method == "Contrast Enhancement":
+                                a = st.slider("Alpha", 0.1, 1.0, 0.5)
+                                b = st.slider("Beta", 1, 20, 10)
+                                processed = fuzzy.fuzzy_contrast_enhancement(img, a, b)
+                            
+                            else:  # Segmentation
+                                n_clusters = st.slider("Number of Clusters", 2, 10, 3)
+                                processed = fuzzy.fuzzy_image_segmentation(img, n_clusters)
+                        
+                        elif tool == "Feature Extraction":
+                            features = processor.extract_haralick_features(img)
+                            st.dataframe(features)
+                            return
+                        
+                        elif tool == "Deep Learning":
+                            model = st.selectbox("Select Model", list(MODELS.keys()))
+                            features = processor.extract_dl_features(img, model)
+                            st.text(f"Feature Vector Length: {len(features)}")
+                            st.line_chart(features[:50])
+                            return
+                        
+                        elif tool == "Panorama Stitching":
+                            uploaded_files = st.file_uploader(
+                                "Upload multiple images for stitching", 
+                                type=["jpg", "jpeg", "png"], 
+                                accept_multiple_files=True
+                            )
+                            if uploaded_files and len(uploaded_files) >= 2:
+                                images = [np.array(Image.open(file).convert("RGB")) for file in uploaded_files]
+                                processed = processor.stitch_images(images)
+                        
+                        elif tool == "3D Visualization":
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                elevation = st.slider("Elevation", 0, 90, 30)
+                            with col2:
+                                azimuth = st.slider("Azimuth", 0, 360, 45)
+                            
+                            fig = processor.create_3d_projection(img, elevation, azimuth)
+                            st.pyplot(fig)
+                            return
+                        
+                        elif tool == "Batch Processing":
+                            uploaded_files = st.file_uploader(
+                                "Upload multiple images", 
+                                type=["jpg", "jpeg", "png"], 
+                                accept_multiple_files=True
+                            )
+                            if uploaded_files:
+                                operation = st.selectbox("Select Operation", [
+                                    "adjust_gamma", "apply_grayscale", "apply_threshold"
+                                ])
+                                params = {}
+                                if operation == "adjust_gamma":
+                                    params['gamma'] = st.slider("Gamma", 0.1, 3.0, 1.0)
+                                elif operation == "apply_threshold":
+                                    params['t'] = st.slider("Threshold", 0, 255, 127)
+                                
+                                results = processor.batch_process(uploaded_files, operation, params)
+                                for i, result in enumerate(results):
+                                    st.image(result, caption=f"Processed Image {i+1}", use_column_width=True)
+                        
+                        elif tool == "Classic Tools":
+                            st.sidebar.header("⚙️ Parameters")
+                            threshold = st.sidebar.slider("Threshold", 0, 255, 127)
+                            canny_t1 = st.sidebar.slider("Canny Threshold 1", 0, 500, 100)
+                            canny_t2 = st.sidebar.slider("Canny Threshold 2", 0, 500, 200)
+                            blur_k = st.sidebar.slider("Blur Kernel Size", 1, 25, 5, step=2)
+                            
+                            classic_tool = st.selectbox("Select Classic Tool", [
+                                "Grayscale", "Gradient", "Thresholding", 
+                                "Histogram Equalization", "Canny Edge Detection", 
+                                "Gaussian Blur", "Sharpening", "Invert Colors", 
+                                "Adaptive Thresholding"
+                            ])
+                            
+                            if classic_tool == "Grayscale":
+                                processed = processor.apply_grayscale(img)
+                            elif classic_tool == "Gradient":
+                                processed = processor.apply_gradient(img)
+                            elif classic_tool == "Thresholding":
+                                processed = processor.apply_threshold(img, threshold)
+                            elif classic_tool == "Histogram Equalization":
+                                processed = processor.apply_hist_eq(img)
+                            elif classic_tool == "Canny Edge Detection":
+                                processed = processor.apply_canny(img, canny_t1, canny_t2)
+                            elif classic_tool == "Gaussian Blur":
+                                processed = processor.apply_blur(img, blur_k)
+                            elif classic_tool == "Sharpening":
+                                processed = processor.apply_sharpen(img)
+                            elif classic_tool == "Invert Colors":
+                                processed = processor.apply_invert(img)
+                            elif classic_tool == "Adaptive Thresholding":
+                                processed = processor.apply_adaptive_thresh(img)
+                        
+                        # Display processed image
+                        if tool not in ["Feature Extraction", "Deep Learning", "3D Visualization"] and processed is not None:
+                            st.image(processed, caption="Processed Image", use_column_width=True)
+                            
+                            # Download option
+                            is_gray = len(processed.shape) == 2
+                            processed_bgr = processed if is_gray else cv2.cvtColor(processed, cv2.COLOR_RGB2BGR)
+                            _, buffer = cv2.imencode(".jpg", processed_bgr)
+                            b64 = base64.b64encode(buffer).decode()
+                            href = f'<a href="data:image/jpeg;base64,{b64}" download="processed.jpg">💾 Download Result</a>'
+                            st.markdown(href, unsafe_allow_html=True)
+                            
+                except cv2.error as e:
+                    st.error(f"OpenCV Error: {str(e)}")
                 except Exception as e:
-                    st.error(f"Stitching failed: {str(e)}")
-                    return
-        
-        elif tool == "3D Visualization":
-            col1, col2 = st.columns(2)
-            with col1:
-                elevation = st.slider("Elevation", 0, 90, 30)
-            with col2:
-                azimuth = st.slider("Azimuth", 0, 360, 45)
-            
-            fig = processor.create_3d_projection(img, elevation, azimuth)
-            st.pyplot(fig)
-            return
-        
-        elif tool == "Batch Processing":
-            uploaded_files = st.file_uploader(
-                "Upload multiple images", 
-                type=["jpg", "jpeg", "png"], 
-                accept_multiple_files=True
-            )
-            if uploaded_files:
-                operation = st.selectbox("Select Operation", [
-                    "adjust_gamma", "apply_grayscale", "apply_threshold"
-                ])
-                params = {}
-                if operation == "adjust_gamma":
-                    params['gamma'] = st.slider("Gamma", 0.1, 3.0, 1.0)
-                elif operation == "apply_threshold":
-                    params['t'] = st.slider("Threshold", 0, 255, 127)
-                
-                results = processor.batch_process(uploaded_files, operation, params)
-                for i, result in enumerate(results):
-                    st.image(result, caption=f"Processed Image {i+1}", use_column_width=True)
-        
-        elif tool == "Classic Tools":
-            st.sidebar.header("⚙️ Parameters")
-            threshold = st.sidebar.slider("Threshold", 0, 255, 127)
-            canny_t1 = st.sidebar.slider("Canny Threshold 1", 0, 500, 100)
-            canny_t2 = st.sidebar.slider("Canny Threshold 2", 0, 500, 200)
-            blur_k = st.sidebar.slider("Blur Kernel Size", 1, 25, 5, step=2)
-            
-            classic_tool = st.selectbox("Select Classic Tool", [
-                "Grayscale", "Gradient", "Thresholding", 
-                "Histogram Equalization", "Canny Edge Detection", 
-                "Gaussian Blur", "Sharpening", "Invert Colors", 
-                "Adaptive Thresholding"
-            ])
-            
-            if classic_tool == "Grayscale":
-                processed = processor.apply_grayscale(img)
-            elif classic_tool == "Gradient":
-                processed = processor.apply_gradient(img)
-            elif classic_tool == "Thresholding":
-                processed = processor.apply_threshold(img, threshold)
-            elif classic_tool == "Histogram Equalization":
-                processed = processor.apply_hist_eq(img)
-            elif classic_tool == "Canny Edge Detection":
-                processed = processor.apply_canny(img, canny_t1, canny_t2)
-            elif classic_tool == "Gaussian Blur":
-                processed = processor.apply_blur(img, blur_k)
-            elif classic_tool == "Sharpening":
-                processed = processor.apply_sharpen(img)
-            elif classic_tool == "Invert Colors":
-                processed = processor.apply_invert(img)
-            elif classic_tool == "Adaptive Thresholding":
-                processed = processor.apply_adaptive_thresh(img)
-        
-        # Display processed image (if not already shown)
-        if tool not in ["Feature Extraction", "Deep Learning", "3D Visualization"]:
-            st.image(processed, caption="Processed Image", use_column_width=True)
-            
-            # Download option
-            is_gray = len(processed.shape) == 2
-            processed_bgr = processed if is_gray else cv2.cvtColor(processed, cv2.COLOR_RGB2BGR)
-            _, buffer = cv2.imencode(".jpg", processed_bgr)
-            b64 = base64.b64encode(buffer).decode()
-            href = f'<a href="data:image/jpeg;base64,{b64}" download="processed.jpg">💾 Download Result</a>'
-            st.markdown(href, unsafe_allow_html=True)
+                    st.error(f"Processing Error: {str(e)}")
+                    
+        except Exception as e:
+            st.error(f"Invalid image file: {str(e)}")
+            st.stop()  # Halt execution on critical errors
 
 # ========== Main Application ==========
 def get_config_path():
