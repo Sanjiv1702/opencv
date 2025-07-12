@@ -1,7 +1,12 @@
 #!/bin/bash
+
+# 1. First create persistent storage directory
 mkdir -p /var/lib/render
 
-# Set all Streamlit server configurations via CLI
+# 2. Convert tabs to spaces in Python file to prevent indentation errors
+sed -i 's/\t/    /g' streamlit_app.py
+
+# 3. Start Streamlit with all required server configurations
 streamlit run streamlit_app.py \
   --server.port=$PORT \
   --server.headless=true \
